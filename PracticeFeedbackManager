@@ -1,0 +1,548 @@
+import Foundation
+import AVFoundation
+import UIKit
+import Combine
+
+enum PaceFeedbackState: Equatable {
+
+    case waiting
+    case tooSlow
+    case good
+    case tooFast
+
+    var message: String {
+
+        switch self {
+
+        case .waiting:
+            return "Waiting for compressions"
+
+        case .tooSlow:
+            return "Increase Pace"
+
+        case .good:
+            return "Good Pace"
+
+        case .tooFast:
+            return "Reduce Pace"
+        }
+    }
+}
+
+@MainActor
+final class PracticeFeedbackManager: ObservableObject {
+
+    let config: CPRProtocolConfig
+
+    // MARK: - Published State
+
+    @Published private(set)
+    var paceState: PaceFeedbackState = .waiting
+
+    // MARK: - Voice
+
+    private let speechSynthesizer =
+        AVSpeechSynthesizer()
+
+    // MARK: - Haptics
+
+    private let lightImpact =
+        UIImpactFeedbackGenerator(style: .light)
+
+    private let mediumImpact =
+        UIImpactFeedbackGenerator(style: .medium)
+
+    private let notificationFeedback =
+        UINotificationFeedbackGenerator()
+
+    // MARK: - Metronome
+
+    private let audioEngine =
+        AVAudioEngine()
+
+    private let metronomePlayer =
+        AVAudioPlayerNode()
+
+    private var clickBuffer:
+        AVAudioPCMBuffer?
+
+    private var metronomeTimer:
+        Timer?
+
+    private let metronomeCPM: Double = 110
+
+    // MARK: - Init
+
+    init(config: CPRProtocolConfig) {
+
+        self.config = config
+
+        prepareHaptics()
+        prepareMetronomeAudio()
+    }
+
+    // MARK: - Session
+
+    func beginSession() {
+
+        guard config.practiceMode == .coach else {
+            return
+        }
+
+        paceState = .waiting
+
+        prepareAudioSession()
+
+        if config.voicePromptsEnabled {
+            speak("Begin compressions")
+        }
+
+        if config.hapticsEnabled {
+            mediumImpact.impactOccurred()
+        }
+    }
+
+    func reset() {
+
+        stopAll()
+
+        paceState = .waiting
+    }
+
+    func stopAll() {
+
+        stopMetronome()
+
+        if speechSynthesizer.isSpeaking {
+
+            speechSynthesizer.stopSpeaking(
+                at: .immediate
+            )
+        }
+    }
+
+    // MARK: - Pace Feedback
+
+    func updatePace(
+        cpm: Double?
+    ) {
+
+        guard config.practiceMode == .coach else {
+            return
+        }
+
+        guard let cpm else {
+
+            paceState = .waiting
+            return
+        }
+
+        let newState =
+            classifyPace(
+                cpm: cpm
+            )
+
+        guard newState != paceState else {
+            return
+        }
+
+        paceState = newState
+
+        switch newState {
+
+        case .waiting:
+            break
+
+        case .tooSlow:
+
+            if config.voicePromptsEnabled {
+                speak("Increase pace")
+            }
+
+            paceHaptic()
+
+        case .good:
+
+            if config.voicePromptsEnabled {
+                speak("Good pace")
+            }
+
+            if config.hapticsEnabled {
+                lightImpact.impactOccurred(
+                    intensity: 0.6
+                )
+            }
+
+        case .tooFast:
+
+            if config.voicePromptsEnabled {
+                speak("Reduce pace")
+            }
+
+            paceHaptic()
+        }
+    }
+
+    // MARK: - Stable Pace Classification
+
+    private func classifyPace(
+        cpm: Double
+    ) -> PaceFeedbackState {
+
+        /*
+         Hysteresis prevents rapid switching
+         near the pace boundaries.
+         */
+
+        switch paceState {
+
+        case .tooSlow:
+
+            if cpm < 103 {
+                return .tooSlow
+            }
+
+            if cpm > 122 {
+                return .tooFast
+            }
+
+            return .good
+
+        case .tooFast:
+
+            if cpm > 117 {
+                return .tooFast
+            }
+
+            if cpm < 98 {
+                return .tooSlow
+            }
+
+            return .good
+
+        case .good:
+
+            if cpm < 98 {
+                return .tooSlow
+            }
+
+            if cpm > 122 {
+                return .tooFast
+            }
+
+            return .good
+
+        case .waiting:
+
+            if cpm < 100 {
+                return .tooSlow
+            }
+
+            if cpm > 120 {
+                return .tooFast
+            }
+
+            return .good
+        }
+    }
+
+    private func paceHaptic() {
+
+        guard config.hapticsEnabled else {
+            return
+        }
+
+        lightImpact.impactOccurred(
+            intensity: 0.8
+        )
+    }
+
+    // MARK: - Breath Feedback
+
+    func breathsDue(
+        count: Int
+    ) {
+
+        guard config.practiceMode == .coach else {
+            return
+        }
+
+        if config.voicePromptsEnabled {
+
+            speak(
+                count == 1
+                    ? "Give one breath"
+                    : "Give \(count) breaths"
+            )
+        }
+
+        if config.hapticsEnabled {
+
+            notificationFeedback
+                .notificationOccurred(
+                    .warning
+                )
+        }
+    }
+
+    func compressionsResumed() {
+
+        guard config.practiceMode == .coach else {
+            return
+        }
+
+        if config.voicePromptsEnabled {
+            speak("Resume compressions")
+        }
+
+        if config.hapticsEnabled {
+            lightImpact.impactOccurred()
+        }
+    }
+
+    // MARK: - Compressor Switch
+
+    func switchRescuerDue() {
+
+        guard config.practiceMode == .coach else {
+            return
+        }
+
+        if config.voicePromptsEnabled {
+            speak("Switch compressor")
+        }
+
+        guard config.hapticsEnabled else {
+            return
+        }
+
+        notificationFeedback
+            .notificationOccurred(
+                .warning
+            )
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.30
+        ) { [weak self] in
+
+            self?.notificationFeedback
+                .notificationOccurred(
+                    .warning
+                )
+        }
+    }
+
+    // MARK: - Voice
+
+    private func speak(
+        _ text: String
+    ) {
+
+        guard config.voicePromptsEnabled else {
+            return
+        }
+
+        // Don't stack old instructions.
+        if speechSynthesizer.isSpeaking {
+
+            speechSynthesizer.stopSpeaking(
+                at: .immediate
+            )
+        }
+
+        let utterance =
+            AVSpeechUtterance(
+                string: text
+            )
+
+        utterance.rate = 0.48
+        utterance.volume = 1.0
+
+        speechSynthesizer.speak(
+            utterance
+        )
+    }
+
+    // MARK: - Metronome
+
+    func startMetronome() {
+
+        guard
+            config.practiceMode == .coach,
+            config.metronomeEnabled
+        else {
+            return
+        }
+
+        stopMetronome()
+
+        prepareAudioSession()
+        startAudioEngineIfNeeded()
+
+        let interval =
+            60.0 / metronomeCPM
+
+        playMetronomeClick()
+
+        metronomeTimer =
+            Timer.scheduledTimer(
+                withTimeInterval: interval,
+                repeats: true
+            ) { [weak self] _ in
+
+                Task { @MainActor in
+                    self?.playMetronomeClick()
+                }
+            }
+    }
+
+    func stopMetronome() {
+
+        metronomeTimer?.invalidate()
+        metronomeTimer = nil
+    }
+
+    private func prepareMetronomeAudio() {
+
+        let sampleRate = 44_100.0
+
+        guard let format =
+                AVAudioFormat(
+                    standardFormatWithSampleRate:
+                        sampleRate,
+                    channels: 1
+                ) else {
+            return
+        }
+
+        let duration = 0.035
+
+        let frameCount =
+            AVAudioFrameCount(
+                sampleRate * duration
+            )
+
+        guard let buffer =
+                AVAudioPCMBuffer(
+                    pcmFormat: format,
+                    frameCapacity: frameCount
+                ) else {
+            return
+        }
+
+        buffer.frameLength = frameCount
+
+        guard let channel =
+                buffer.floatChannelData?[0] else {
+            return
+        }
+
+        for frame in 0..<Int(frameCount) {
+
+            let time =
+                Double(frame) / sampleRate
+
+            let frequency =
+                1_100.0
+
+            let envelope =
+                exp(-70.0 * time)
+
+            let sample =
+                sin(
+                    2.0 *
+                    Double.pi *
+                    frequency *
+                    time
+                )
+
+            channel[frame] =
+                Float(
+                    sample *
+                    envelope *
+                    0.35
+                )
+        }
+
+        clickBuffer = buffer
+
+        audioEngine.attach(
+            metronomePlayer
+        )
+
+        audioEngine.connect(
+            metronomePlayer,
+            to: audioEngine.mainMixerNode,
+            format: format
+        )
+    }
+
+    private func startAudioEngineIfNeeded() {
+
+        guard !audioEngine.isRunning else {
+            return
+        }
+
+        do {
+
+            try audioEngine.start()
+
+        } catch {
+
+            // The app can still operate
+            // without metronome audio.
+        }
+    }
+
+    private func playMetronomeClick() {
+
+        guard let clickBuffer else {
+            return
+        }
+
+        startAudioEngineIfNeeded()
+
+        if !metronomePlayer.isPlaying {
+            metronomePlayer.play()
+        }
+
+        metronomePlayer.scheduleBuffer(
+            clickBuffer,
+            at: nil,
+            options: []
+        )
+    }
+
+    // MARK: - Audio Session
+
+    private func prepareAudioSession() {
+
+        let session =
+            AVAudioSession.sharedInstance()
+
+        do {
+
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                options: [.duckOthers]
+            )
+
+            try session.setActive(true)
+
+        } catch {
+
+            // Voice/haptics should not prevent
+            // the practice session from running.
+        }
+    }
+
+    // MARK: - Haptic Prep
+
+    private func prepareHaptics() {
+
+        lightImpact.prepare()
+        mediumImpact.prepare()
+        notificationFeedback.prepare()
+    }
+}
