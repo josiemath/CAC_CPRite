@@ -1,0 +1,58 @@
+import SwiftUI
+
+struct ContentView: View {
+
+    var body: some View {
+
+        NavigationStack {
+
+            VStack(spacing: 24) {
+
+                Spacer()
+
+                Image(systemName: "heart.circle.fill")
+                    .font(.system(size: 84))
+                    .foregroundStyle(.red)
+
+                Text("PulseGrip")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("CPR Practice Assistant")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+
+                Text(
+                    "Practice compression pace, compression cycles, and team CPR timing."
+                )
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 30)
+
+                NavigationLink {
+
+                    SetupView()
+
+                } label: {
+
+                    Text("Start Practice")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
+                .buttonStyle(.borderedProminent)
+                .padding(.horizontal, 40)
+
+                Spacer()
+
+                Text("For CPR training and practice.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}
