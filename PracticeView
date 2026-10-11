@@ -1,0 +1,839 @@
+import SwiftUI
+
+@MainActor
+struct PracticeView: View {
+
+    // MARK: - Configuration
+
+    let config: CPRProtocolConfig
+
+    // MARK: - Managers
+
+    @StateObject private var motionManager: MotionManager
+    @StateObject private var feedbackManager: PracticeFeedbackManager
+
+    // MARK: - Session State
+
+    @State private var isRunning = false
+    @State private var elapsedTime = 0
+    @State private var timer: Timer?
+
+    // MARK: - Breath Prompt State
+
+    @State private var showBreathPrompt = false
+    @State private var breathPromptTask: Task<Void, Never>?
+
+    // MARK: - Results
+
+    @State private var finalResults: PracticeResults?
+    @State private var showResults = false
+
+    // MARK: - Initializer
+
+    init(config: CPRProtocolConfig) {
+
+        self.config = config
+
+        _motionManager = StateObject(
+            wrappedValue: MotionManager(
+                config: config
+            )
+        )
+
+        _feedbackManager = StateObject(
+            wrappedValue: PracticeFeedbackManager(
+                config: config
+            )
+        )
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+
+        ScrollView {
+
+            VStack(spacing: 24) {
+
+                // MARK: Mode / Protocol
+
+                VStack(spacing: 5) {
+
+                    Text(
+                        config.practiceMode == .coach
+                            ? "Coach Mode"
+                            : "Assessment Mode"
+                    )
+                    .font(.headline)
+
+                    Text(
+                        "\(config.patientGroup.rawValue) • \(config.rescuerMode.rawValue)"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Text(
+                        "\(config.compressionsPerCycle):\(config.breathsPerCycle) protocol"
+                    )
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                }
+
+                Divider()
+
+                // MARK: Elapsed Time
+
+                VStack(spacing: 6) {
+
+                    Text("Elapsed Time")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+
+                    Text(formatTime(elapsedTime))
+                        .font(
+                            .system(
+                                size: 44,
+                                weight: .bold,
+                                design: .monospaced
+                            )
+                        )
+                }
+
+                // MARK: Compression Count
+
+                VStack(spacing: 6) {
+
+                    Text("Compressions")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+
+                    Text(
+                        "\(motionManager.compressionCount)"
+                    )
+                    .font(
+                        .system(
+                            size: 68,
+                            weight: .bold,
+                            design: .rounded
+                        )
+                    )
+                }
+
+                // MARK: Coach Mode Pace
+
+                if config.practiceMode == .coach {
+
+                    Divider()
+
+                    VStack(spacing: 8) {
+
+                        Text("Pace")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+
+                        if let cpm = motionManager.currentCPM {
+
+                            Text(
+                                "\(Int(cpm.rounded())) CPM"
+                            )
+                            .font(
+                                .system(
+                                    size: 38,
+                                    weight: .bold,
+                                    design: .rounded
+                                )
+                            )
+
+                            Label(
+                                feedbackManager.paceState.message,
+                                systemImage: paceIcon(
+                                    for: feedbackManager.paceState
+                                )
+                            )
+                            .font(.headline)
+                            .fontWeight(.semibold)
+
+                        } else {
+
+                            Text("-- CPM")
+                                .font(
+                                    .system(
+                                        size: 38,
+                                        weight: .bold,
+                                        design: .rounded
+                                    )
+                                )
+                                .foregroundStyle(.secondary)
+
+                            Text("Waiting for compressions")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                // MARK: Assessment Mode
+
+                if config.practiceMode == .assessment {
+
+                    Divider()
+
+                    VStack(spacing: 10) {
+
+                        Image(
+                            systemName: "checkmark.shield"
+                        )
+                        .font(.title)
+
+                        Text("Assessment in Progress")
+                            .font(.headline)
+
+                        Text(
+                            "Live pace coaching is hidden. Your performance report will appear when you stop the assessment."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        .gray.opacity(0.08)
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
+                }
+
+                // MARK: Compression / Breath Cycle
+
+                if config.practiceMode == .coach {
+
+                    Divider()
+
+                    VStack(spacing: 12) {
+
+                        Text("Compression / Breath Cycle")
+                            .font(.headline)
+
+                        // ----------------------------
+                        // GIVE BREATHS — 3 SEC WINDOW
+                        // ----------------------------
+
+                        if showBreathPrompt {
+
+                            Text(
+                                "\(motionManager.compressionCycleTarget) / \(motionManager.compressionCycleTarget)"
+                            )
+                            .font(
+                                .system(
+                                    size: 34,
+                                    weight: .bold,
+                                    design: .rounded
+                                )
+                            )
+
+                            ProgressView(value: 1.0)
+
+                            Image(
+                                systemName: "lungs.fill"
+                            )
+                            .font(.system(size: 36))
+
+                            Text(
+                                "Give \(motionManager.breathTarget) Breaths"
+                            )
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+
+                            Text(
+                                "2 seconds for breaths + 1 second buffer"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        }
+
+                        // ----------------------------
+                        // AFTER BREATH WINDOW
+                        // ----------------------------
+
+                        else if motionManager.breathsDue {
+
+                            Image(
+                                systemName: "arrow.down.heart.fill"
+                            )
+                            .font(.system(size: 32))
+
+                            Text("Resume Compressions")
+                                .font(.title2)
+                                .fontWeight(.bold)
+
+                            Text(
+                                "Begin the next compression cycle."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        // ----------------------------
+                        // NORMAL COMPRESSION CYCLE
+                        // ----------------------------
+
+                        else {
+
+                            Text(
+                                "\(motionManager.compressionsInCycle) / \(motionManager.compressionCycleTarget)"
+                            )
+                            .font(
+                                .system(
+                                    size: 34,
+                                    weight: .bold,
+                                    design: .rounded
+                                )
+                            )
+
+                            ProgressView(
+                                value: Double(
+                                    motionManager.compressionsInCycle
+                                ),
+                                total: Double(
+                                    motionManager.compressionCycleTarget
+                                )
+                            )
+
+                            Text(
+                                "Next: \(motionManager.breathTarget) breaths"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Text(
+                            "Completed cycles: \(motionManager.completedCycles)"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        .gray.opacity(0.08)
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
+                }
+
+                // MARK: Coaching Features
+
+                if config.practiceMode == .coach {
+
+                    VStack(spacing: 10) {
+
+                        HStack {
+
+                            Label(
+                                "Voice",
+                                systemImage:
+                                    config.voicePromptsEnabled
+                                    ? "speaker.wave.2.fill"
+                                    : "speaker.slash.fill"
+                            )
+
+                            Spacer()
+
+                            Text(
+                                config.voicePromptsEnabled
+                                    ? "On"
+                                    : "Off"
+                            )
+                            .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+
+                            Label(
+                                "Haptics",
+                                systemImage:
+                                    config.hapticsEnabled
+                                    ? "iphone.radiowaves.left.and.right"
+                                    : "iphone"
+                            )
+
+                            Spacer()
+
+                            Text(
+                                config.hapticsEnabled
+                                    ? "On"
+                                    : "Off"
+                            )
+                            .foregroundStyle(.secondary)
+                        }
+
+                        HStack {
+
+                            Label(
+                                "Metronome",
+                                systemImage: "metronome"
+                            )
+
+                            Spacer()
+
+                            Text(
+                                config.metronomeEnabled
+                                    ? "110 CPM"
+                                    : "Off"
+                            )
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.caption)
+                    .padding(.horizontal)
+                }
+
+                // MARK: Compressor Switch
+
+                if config.practiceMode == .coach &&
+                    motionManager.switchRescuerDue {
+
+                    VStack(spacing: 12) {
+
+                        Image(
+                            systemName: "person.2.fill"
+                        )
+                        .font(.system(size: 38))
+
+                        Text("Switch Compressor")
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        Text(
+                            "Change compressors with as little interruption as possible."
+                        )
+                        .font(.subheadline)
+                        .multilineTextAlignment(.center)
+
+                        Button {
+
+                            motionManager
+                                .acknowledgeRescuerSwitch()
+
+                        } label: {
+
+                            Label(
+                                "Switched",
+                                systemImage:
+                                    "checkmark.circle.fill"
+                            )
+                            .font(.headline)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        .orange.opacity(0.15)
+                    )
+                    .clipShape(
+                        RoundedRectangle(
+                            cornerRadius: 18
+                        )
+                    )
+                }
+
+                Divider()
+
+                // MARK: Start / Stop
+
+                HStack(spacing: 16) {
+
+                    Button {
+
+                        startPractice()
+
+                    } label: {
+
+                        Label(
+                            "Start",
+                            systemImage: "play.fill"
+                        )
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRunning)
+
+                    Button {
+
+                        finishPractice()
+
+                    } label: {
+
+                        Label(
+                            "Stop",
+                            systemImage: "stop.fill"
+                        )
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!isRunning)
+                }
+
+                // MARK: Reset
+
+                Button {
+
+                    resetPractice()
+
+                } label: {
+
+                    Label(
+                        "Reset",
+                        systemImage:
+                            "arrow.counterclockwise"
+                    )
+                }
+                .disabled(isRunning)
+
+                // MARK: Errors
+
+                if let errorMessage =
+                    motionManager.errorMessage {
+
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                // MARK: Sensor Status
+
+                Text(
+                    motionManager.isRunning
+                        ? "Motion sensor active"
+                        : "Motion sensor stopped"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                // MARK: Motion Test
+
+                NavigationLink {
+
+                    MotionTestView()
+
+                } label: {
+
+                    Label(
+                        "Test Motion Sensor",
+                        systemImage:
+                            "waveform.path.ecg"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer(minLength: 20)
+            }
+            .padding()
+        }
+
+        // MARK: Navigation
+
+        .navigationTitle("Practice")
+        .navigationBarTitleDisplayMode(.inline)
+
+        .navigationDestination(
+            isPresented: $showResults
+        ) {
+
+            if let finalResults {
+
+                ResultsView(
+                    results: finalResults
+                )
+
+            } else {
+
+                EmptyView()
+            }
+        }
+
+        // MARK: CPM Coaching
+
+        .onChange(
+            of: motionManager.currentCPM
+        ) { _, newCPM in
+
+            feedbackManager.updatePace(
+                cpm: newCPM
+            )
+        }
+
+        // MARK: Breath Prompt
+
+        .onChange(
+            of: motionManager.breathsDue
+        ) { _, newValue in
+
+            guard
+                config.practiceMode == .coach,
+                newValue
+            else {
+                return
+            }
+
+            // Cancel an old breath timer if needed.
+            breathPromptTask?.cancel()
+
+            // Show immediately.
+            showBreathPrompt = true
+
+            // Voice + haptic.
+            feedbackManager.breathsDue(
+                count: motionManager.breathTarget
+            )
+
+            // Pause metronome while breaths are due.
+            feedbackManager.stopMetronome()
+
+            breathPromptTask =
+                Task { @MainActor in
+
+                    do {
+
+                        // 3 seconds total:
+                        // 2 sec breath time
+                        // + 1 sec buffer
+
+                        try await Task.sleep(
+                            nanoseconds:
+                                3_000_000_000
+                        )
+
+                    } catch {
+
+                        return
+                    }
+
+                    guard !Task.isCancelled else {
+                        return
+                    }
+
+                    showBreathPrompt = false
+                    breathPromptTask = nil
+
+                    guard isRunning else {
+                        return
+                    }
+
+                    // Tell user to continue CPR.
+                    feedbackManager
+                        .compressionsResumed()
+
+                    // Restart only if enabled.
+                    feedbackManager
+                        .startMetronome()
+                }
+        }
+
+        // MARK: Switch Compressor Feedback
+
+        .onChange(
+            of: motionManager.switchRescuerDue
+        ) { _, newValue in
+
+            guard
+                config.practiceMode == .coach,
+                newValue
+            else {
+                return
+            }
+
+            feedbackManager
+                .switchRescuerDue()
+        }
+
+        // MARK: Cleanup
+
+        .onDisappear {
+
+            stopPractice()
+        }
+    }
+
+    // MARK: - Start Practice
+
+    private func startPractice() {
+
+        guard !isRunning else {
+            return
+        }
+
+        finalResults = nil
+        showResults = false
+
+        showBreathPrompt = false
+
+        breathPromptTask?.cancel()
+        breathPromptTask = nil
+
+        isRunning = true
+
+        feedbackManager.beginSession()
+
+        motionManager.startMotionUpdates()
+
+        feedbackManager.startMetronome()
+
+        timer =
+            Timer.scheduledTimer(
+                withTimeInterval: 1.0,
+                repeats: true
+            ) { _ in
+
+                elapsedTime += 1
+            }
+    }
+
+    // MARK: - Stop Internally
+
+    private func stopPractice() {
+
+        isRunning = false
+
+        timer?.invalidate()
+        timer = nil
+
+        breathPromptTask?.cancel()
+        breathPromptTask = nil
+
+        showBreathPrompt = false
+
+        motionManager.stopMotionUpdates()
+
+        feedbackManager.stopAll()
+    }
+
+    // MARK: - Finish + Results
+
+    private func finishPractice() {
+
+        guard isRunning else {
+            return
+        }
+
+        /*
+         Capture the measurements BEFORE
+         stopping or resetting anything.
+         */
+
+        let results =
+            PracticeResults(
+                duration: elapsedTime,
+                compressionCount:
+                    motionManager.compressionCount,
+                averageCPM:
+                    motionManager.sessionAverageCPM,
+                completedCycles:
+                    motionManager.completedCycles,
+                config: config
+            )
+
+        stopPractice()
+
+        finalResults = results
+
+        // Assessment AND Coach mode
+        // both receive an immediate report.
+        showResults = true
+    }
+
+    // MARK: - Reset
+
+    private func resetPractice() {
+
+        stopPractice()
+
+        elapsedTime = 0
+
+        finalResults = nil
+        showResults = false
+
+        motionManager.resetSession()
+
+        feedbackManager.reset()
+    }
+
+    // MARK: - Pace Icon
+
+    private func paceIcon(
+        for state: PaceFeedbackState
+    ) -> String {
+
+        switch state {
+
+        case .waiting:
+            return "ellipsis"
+
+        case .tooSlow:
+            return "arrow.up.circle.fill"
+
+        case .good:
+            return "checkmark.circle.fill"
+
+        case .tooFast:
+            return "arrow.down.circle.fill"
+        }
+    }
+
+    // MARK: - Format Time
+
+    private func formatTime(
+        _ seconds: Int
+    ) -> String {
+
+        let minutes =
+            seconds / 60
+
+        let remainingSeconds =
+            seconds % 60
+
+        return String(
+            format: "%02d:%02d",
+            minutes,
+            remainingSeconds
+        )
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+
+    NavigationStack {
+
+        PracticeView(
+            config:
+                CPRProtocolConfig(
+                    patientGroup: .adult,
+                    rescuerMode: .twoOrMore,
+                    practiceMode: .coach,
+                    voicePromptsEnabled: true,
+                    hapticsEnabled: true,
+                    metronomeEnabled: false
+                )
+        )
+    }
+}
