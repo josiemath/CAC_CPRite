@@ -1,0 +1,34 @@
+import Foundation
+
+struct SignalFilter {
+
+    private(set) var windowSize: Int
+    private var values: [Double] = []
+
+    init(windowSize: Int = 5) {
+        self.windowSize = max(1, windowSize)
+    }
+
+    mutating func add(_ value: Double) -> Double {
+
+        values.append(value)
+
+        if values.count > windowSize {
+            values.removeFirst()
+        }
+
+        let total = values.reduce(0, +)
+
+        return total / Double(values.count)
+    }
+
+    mutating func reset() {
+        values.removeAll()
+    }
+
+    mutating func setWindowSize(_ newSize: Int) {
+        windowSize = max(1, newSize)
+        reset()
+    }
+}
+
