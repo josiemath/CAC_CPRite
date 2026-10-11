@@ -1,0 +1,91 @@
+import Foundation
+
+struct RateEstimator {
+
+    // Number of recent compression intervals
+    // used to smooth the displayed CPM.
+    private let maximumIntervals = 5
+
+    // After this much time without a compression,
+    // the displayed CPM becomes unavailable.
+    private let staleAfter: TimeInterval = 2.0
+
+    private var compressionTimes: [TimeInterval] = []
+
+    mutating func addCompression(
+        at timestamp: TimeInterval
+    ) -> Double? {
+
+        compressionTimes.append(timestamp)
+
+        // We need one more timestamp than intervals.
+        let maximumTimestamps = maximumIntervals + 1
+
+        if compressionTimes.count > maximumTimestamps {
+
+            let extra =
+                compressionTimes.count - maximumTimestamps
+
+            compressionTimes.removeFirst(extra)
+        }
+
+        return calculateRate()
+    }
+
+    mutating func currentRate(
+        at currentTimestamp: TimeInterval
+    ) -> Double? {
+
+        guard let lastCompression =
+                compressionTimes.last else {
+            return nil
+        }
+
+        // Don't keep displaying an old rate
+        // after the user stops compressing.
+        if currentTimestamp - lastCompression > staleAfter {
+            return nil
+        }
+
+        return calculateRate()
+    }
+
+    mutating func reset() {
+        compressionTimes.removeAll()
+    }
+
+    private func calculateRate() -> Double? {
+
+        // At least two compressions are required
+        // to calculate one interval.
+        guard compressionTimes.count >= 2 else {
+            return nil
+        }
+
+        var intervals: [TimeInterval] = []
+
+        for index in 1..<compressionTimes.count {
+
+            let interval =
+                compressionTimes[index] -
+                compressionTimes[index - 1]
+
+            // Ignore invalid timing values.
+            if interval > 0 {
+                intervals.append(interval)
+            }
+        }
+
+        guard !intervals.isEmpty else {
+            return nil
+        }
+
+        let total =
+            intervals.reduce(0, +)
+
+        let averageInterval =
+            total / Double(intervals.count)
+
+        return 60.0 / averageInterval
+    }
+}
