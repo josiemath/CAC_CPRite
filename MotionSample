@@ -1,0 +1,14 @@
+import Foundation
+
+struct MotionSample: Identifiable {
+
+    let id = UUID()
+
+    let time: TimeInterval
+
+    let x: Double
+    let y: Double
+    let z: Double
+
+    let filteredZ: Double
+}
