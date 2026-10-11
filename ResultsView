@@ -1,0 +1,490 @@
+import SwiftUI
+
+struct ResultsView: View {
+
+    let results: PracticeResults
+
+    var body: some View {
+
+        ScrollView {
+
+            VStack(spacing: 24) {
+
+                // MARK: - Header
+
+                Image(
+                    systemName:
+                        results.config.practiceMode == .assessment
+                        ? "chart.bar.fill"
+                        : "checkmark.circle.fill"
+                )
+                .font(.system(size: 60))
+
+                Text("Practice Complete")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text(
+                    results.config.practiceMode == .assessment
+                        ? "Assessment Results"
+                        : "Practice Summary"
+                )
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+                // MARK: - Main Metrics
+
+                VStack(spacing: 16) {
+
+                    resultRow(
+                        title: "Duration",
+                        value: formatTime(
+                            results.duration
+                        ),
+                        icon: "clock.fill"
+                    )
+
+                    resultRow(
+                        title: "Compressions",
+                        value:
+                            "\(results.compressionCount)",
+                        icon: "hand.raised.fill"
+                    )
+
+                    resultRow(
+                        title: "Average Pace",
+                        value: averagePaceText,
+                        icon: "speedometer"
+                    )
+
+                    resultRow(
+                        title: "Completed Cycles",
+                        value:
+                            "\(results.completedCycles)",
+                        icon:
+                            "arrow.triangle.2.circlepath"
+                    )
+
+                    resultRow(
+                        title: "Protocol",
+                        value:
+                            "\(results.config.compressionsPerCycle):\(results.config.breathsPerCycle)",
+                        icon: "heart.text.square.fill"
+                    )
+                }
+                .padding()
+                .background(
+                    .gray.opacity(0.08)
+                )
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: 18
+                    )
+                )
+
+                // MARK: - Assessment Feedback
+
+                if results.config.practiceMode == .assessment {
+
+                    VStack(
+                        alignment: .leading,
+                        spacing: 16
+                    ) {
+
+                        Text("Assessment Feedback")
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        feedbackCard(
+                            icon: paceFeedbackIcon,
+                            title: paceFeedbackTitle,
+                            message: paceFeedbackMessage
+                        )
+
+                        feedbackCard(
+                            icon: "number.circle.fill",
+                            title: "Compression Count",
+                            message:
+                                compressionFeedback
+                        )
+
+                        feedbackCard(
+                            icon:
+                                "arrow.triangle.2.circlepath",
+                            title: "CPR Cycles",
+                            message:
+                                cycleFeedback
+                        )
+
+                        VStack(
+                            alignment: .leading,
+                            spacing: 8
+                        ) {
+
+                            Label(
+                                "Next Goal",
+                                systemImage:
+                                    "target"
+                            )
+                            .font(.headline)
+
+                            Text(nextGoal)
+                                .font(.subheadline)
+                                .foregroundStyle(
+                                    .secondary
+                                )
+                        }
+                        .padding()
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
+                        .background(
+                            .blue.opacity(0.08)
+                        )
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: 16
+                            )
+                        )
+                    }
+                }
+
+                // MARK: - Coach Summary
+
+                if results.config.practiceMode == .coach {
+
+                    VStack(
+                        alignment: .leading,
+                        spacing: 10
+                    ) {
+
+                        Text("Session Summary")
+                            .font(.title2)
+                            .fontWeight(.bold)
+
+                        Text(paceFeedbackMessage)
+
+                        Text(
+                            "You completed \(results.completedCycles) full compression/breath cycle\(results.completedCycles == 1 ? "" : "s")."
+                        )
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                }
+
+                Divider()
+
+                Text(
+                    "PulseGrip evaluates measurements derived from phone motion and session timing. It does not currently measure compression depth, chest recoil, or whether ventilations were successfully delivered."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            }
+            .padding()
+        }
+        .navigationTitle("Results")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Average Pace
+
+    private var averagePaceText: String {
+
+        guard let averageCPM =
+                results.averageCPM else {
+
+            return "-- CPM"
+        }
+
+        return "\(Int(averageCPM.rounded())) CPM"
+    }
+
+    // MARK: - Pace Assessment
+
+    private var paceFeedbackTitle: String {
+
+        guard let averageCPM =
+                results.averageCPM else {
+
+            return "Not Enough Pace Data"
+        }
+
+        if averageCPM < 100 {
+            return "Pace Was Too Slow"
+        }
+
+        if averageCPM > 120 {
+            return "Pace Was Too Fast"
+        }
+
+        return "Good Compression Pace"
+    }
+
+    private var paceFeedbackMessage: String {
+
+        guard let averageCPM =
+                results.averageCPM else {
+
+            return "Complete more consecutive compressions so PulseGrip can evaluate your compression pace."
+        }
+
+        if averageCPM < 100 {
+
+            return """
+            Your average pace was \
+            \(Int(averageCPM.rounded())) CPM. \
+            On your next attempt, work toward a more consistent pace between 100 and 120 CPM.
+            """
+        }
+
+        if averageCPM > 120 {
+
+            return """
+            Your average pace was \
+            \(Int(averageCPM.rounded())) CPM. \
+            On your next attempt, slow slightly and aim for a consistent pace between 100 and 120 CPM.
+            """
+        }
+
+        return """
+        Your average pace was \
+        \(Int(averageCPM.rounded())) CPM, \
+        which was within the 100–120 CPM practice target. \
+        Focus on maintaining that cadence consistently throughout the session.
+        """
+    }
+
+    private var paceFeedbackIcon: String {
+
+        guard let averageCPM =
+                results.averageCPM else {
+
+            return "questionmark.circle.fill"
+        }
+
+        if averageCPM < 100 {
+            return "arrow.up.circle.fill"
+        }
+
+        if averageCPM > 120 {
+            return "arrow.down.circle.fill"
+        }
+
+        return "checkmark.circle.fill"
+    }
+
+    // MARK: - Compression Feedback
+
+    private var compressionFeedback: String {
+
+        if results.compressionCount == 0 {
+
+            return """
+            No compressions were detected. Check the phone position and try another assessment.
+            """
+        }
+
+        if results.compressionCount <
+            results.config.compressionsPerCycle {
+
+            return """
+            You completed \
+            \(results.compressionCount) compressions. \
+            Try completing at least one full \
+            \(results.config.compressionsPerCycle)-compression cycle on your next attempt.
+            """
+        }
+
+        return """
+        PulseGrip detected \
+        \(results.compressionCount) total compressions during this assessment.
+        """
+    }
+
+    // MARK: - Cycle Feedback
+
+    private var cycleFeedback: String {
+
+        if results.completedCycles == 0 {
+
+            return """
+            No full compression/breath cycles were completed during this assessment.
+            """
+        }
+
+        if results.completedCycles == 1 {
+
+            return """
+            You completed 1 full \
+            \(results.config.compressionsPerCycle):\(results.config.breathsPerCycle) cycle.
+            """
+        }
+
+        return """
+        You completed \
+        \(results.completedCycles) full \
+        \(results.config.compressionsPerCycle):\(results.config.breathsPerCycle) cycles.
+        """
+    }
+
+    // MARK: - Next Goal
+
+    private var nextGoal: String {
+
+        guard let averageCPM =
+                results.averageCPM else {
+
+            return """
+            Complete a longer sequence of consistent compressions so PulseGrip can evaluate your pace.
+            """
+        }
+
+        if averageCPM < 100 {
+
+            return """
+            Increase your compression cadence while keeping the movement controlled and consistent.
+            """
+        }
+
+        if averageCPM > 120 {
+
+            return """
+            Reduce your cadence slightly and concentrate on maintaining a steady rhythm.
+            """
+        }
+
+        if results.completedCycles == 0 {
+
+            return """
+            Your compression pace was on target. Next, complete at least one full compression/breath cycle.
+            """
+        }
+
+        return """
+        Your pace was on target. On the next assessment, try to maintain the same rhythm across additional cycles.
+        """
+    }
+
+    // MARK: - Result Row
+
+    private func resultRow(
+        title: String,
+        value: String,
+        icon: String
+    ) -> some View {
+
+        HStack(spacing: 14) {
+
+            Image(systemName: icon)
+                .frame(width: 28)
+
+            Text(title)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Text(value)
+                .fontWeight(.semibold)
+        }
+        .font(.title3)
+    }
+
+    // MARK: - Feedback Card
+
+    private func feedbackCard(
+        icon: String,
+        title: String,
+        message: String
+    ) -> some View {
+
+        HStack(
+            alignment: .top,
+            spacing: 14
+        ) {
+
+            Image(systemName: icon)
+                .font(.title2)
+                .frame(width: 32)
+
+            VStack(
+                alignment: .leading,
+                spacing: 5
+            ) {
+
+                Text(title)
+                    .font(.headline)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(
+                        .secondary
+                    )
+            }
+
+            Spacer()
+        }
+        .padding()
+        .frame(
+            maxWidth: .infinity,
+            alignment: .leading
+        )
+        .background(
+            .gray.opacity(0.08)
+        )
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: 16
+            )
+        )
+    }
+
+    // MARK: - Time
+
+    private func formatTime(
+        _ seconds: Int
+    ) -> String {
+
+        let minutes = seconds / 60
+
+        let remainingSeconds =
+            seconds % 60
+
+        return String(
+            format: "%02d:%02d",
+            minutes,
+            remainingSeconds
+        )
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+
+    NavigationStack {
+
+        ResultsView(
+            results:
+                PracticeResults(
+                    duration: 124,
+                    compressionCount: 186,
+                    averageCPM: 108,
+                    completedCycles: 6,
+                    config:
+                        CPRProtocolConfig(
+                            patientGroup: .adult,
+                            rescuerMode:
+                                .twoOrMore,
+                            practiceMode:
+                                .assessment
+                        )
+                )
+        )
+    }
+}
