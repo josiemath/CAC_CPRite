@@ -1,0 +1,91 @@
+import Foundation
+
+struct CompressionDetector {
+
+    enum State {
+        case waitingForPeak
+        case aboveThreshold
+    }
+
+    private(set) var state: State = .waitingForPeak
+    private(set) var lastPeakValue: Double = 0
+
+    let threshold: Double
+    let releaseThreshold: Double
+    let minimumInterval: TimeInterval
+
+    private var lastEventTime: TimeInterval = -Double.infinity
+    private var currentPeak: Double = 0
+
+    init(
+        threshold: Double,
+        releaseThreshold: Double,
+        minimumInterval: TimeInterval
+    ) {
+        self.threshold = threshold
+        self.releaseThreshold = releaseThreshold
+        self.minimumInterval = minimumInterval
+    }
+
+    mutating func process(
+        value: Double,
+        timestamp: TimeInterval
+    ) -> Bool {
+
+        switch state {
+
+        case .waitingForPeak:
+
+            // Wait until the signal rises above
+            // our compression threshold.
+            guard value >= threshold else {
+                return false
+            }
+
+            // Prevent events that occur too close
+            // together from being counted twice.
+            guard timestamp - lastEventTime >= minimumInterval else {
+                return false
+            }
+
+            currentPeak = value
+            state = .aboveThreshold
+
+            return false
+
+        case .aboveThreshold:
+
+            // Keep track of the highest point
+            // reached during this movement.
+            if value > currentPeak {
+                currentPeak = value
+            }
+
+            // Stay in this state until the signal
+            // drops back down.
+            guard value <= releaseThreshold else {
+                return false
+            }
+
+            lastPeakValue = currentPeak
+            lastEventTime = timestamp
+
+            currentPeak = 0
+            state = .waitingForPeak
+
+            // One complete movement has occurred.
+            return true
+        }
+    }
+
+    mutating func reset() {
+
+        state = .waitingForPeak
+
+        lastEventTime = -Double.infinity
+
+        currentPeak = 0
+
+        lastPeakValue = 0
+    }
+}
