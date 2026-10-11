@@ -1,0 +1,358 @@
+import SwiftUI
+import Charts
+
+struct MotionTestView: View {
+
+    @StateObject private var motionManager = MotionManager()
+
+    @State private var recordingLabel = "movement"
+    @State private var exportedFileURL: URL?
+    @State private var exportError: String?
+
+    var body: some View {
+
+        ScrollView {
+
+            VStack(spacing: 24) {
+
+                Text("Motion Sensor")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("Live Motion Data")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                // MARK: - Live Sensor Values
+
+                VStack(spacing: 16) {
+
+                    motionRow(
+                        axis: "X",
+                        value: motionManager.accelerationX
+                    )
+
+                    motionRow(
+                        axis: "Y",
+                        value: motionManager.accelerationY
+                    )
+
+                    motionRow(
+                        axis: "Raw Z",
+                        value: motionManager.accelerationZ
+                    )
+
+                    motionRow(
+                        axis: "Smooth Z",
+                        value: motionManager.filteredZ
+                    )
+
+                    Divider()
+
+                    motionRow(
+                        axis: "Rotation",
+                        value: motionManager.rotationMagnitude
+                    )
+
+                    motionRow(
+                        axis: "Max Rotation",
+                        value: motionManager.maxRotationMagnitude
+                    )
+                }
+                .padding()
+                .background(.gray.opacity(0.1))
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 16)
+                )
+
+                // MARK: - Motion Graph
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 10
+                ) {
+
+                    Text("Motion Graph")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text(
+                        "Raw and smoothed Z-axis user acceleration"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    Chart(motionManager.samples) { sample in
+
+                        LineMark(
+                            x: .value(
+                                "Time",
+                                sample.time
+                            ),
+                            y: .value(
+                                "Acceleration",
+                                sample.z
+                            )
+                        )
+                        .foregroundStyle(
+                            by: .value(
+                                "Signal",
+                                "Raw Z"
+                            )
+                        )
+
+                        LineMark(
+                            x: .value(
+                                "Time",
+                                sample.time
+                            ),
+                            y: .value(
+                                "Acceleration",
+                                sample.filteredZ
+                            )
+                        )
+                        .foregroundStyle(
+                            by: .value(
+                                "Signal",
+                                "Smoothed Z"
+                            )
+                        )
+                    }
+                    .frame(height: 240)
+                }
+
+                // MARK: - Time
+
+                VStack(spacing: 6) {
+
+                    Text("Elapsed Sensor Time")
+                        .font(.headline)
+
+                    Text(
+                        String(
+                            format: "%.2f seconds",
+                            motionManager.timestamp
+                        )
+                    )
+                    .font(
+                        .system(
+                            .body,
+                            design: .monospaced
+                        )
+                    )
+                }
+
+                // MARK: - Motion Error
+
+                if let errorMessage =
+                    motionManager.errorMessage {
+
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                // MARK: - Start / Stop
+
+                HStack(spacing: 16) {
+
+                    Button {
+
+                        motionManager
+                            .startMotionUpdates()
+
+                    } label: {
+
+                        Label(
+                            "Start",
+                            systemImage: "play.fill"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        motionManager.isRunning
+                    )
+
+                    Button {
+
+                        motionManager
+                            .stopMotionUpdates()
+
+                    } label: {
+
+                        Label(
+                            "Stop",
+                            systemImage: "stop.fill"
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        !motionManager.isRunning
+                    )
+                }
+
+                // MARK: - Clear
+
+                Button {
+
+                    motionManager.clearSamples()
+
+                } label: {
+
+                    Label(
+                        "Clear Graph",
+                        systemImage: "trash"
+                    )
+                }
+                .disabled(
+                    motionManager.isRunning
+                )
+
+                Divider()
+
+                // MARK: - Recording Label
+
+                VStack(
+                    alignment: .leading,
+                    spacing: 8
+                ) {
+
+                    Text("Recording Label")
+                        .font(.headline)
+
+                    TextField(
+                        "Example: normal compressions",
+                        text: $recordingLabel
+                    )
+                    .textFieldStyle(
+                        .roundedBorder
+                    )
+                }
+
+                // MARK: - CSV Export
+
+                Button {
+
+                    saveCSV()
+
+                } label: {
+
+                    Label(
+                        "Save Recording as CSV",
+                        systemImage:
+                            "square.and.arrow.down"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                }
+                .buttonStyle(.bordered)
+                .disabled(
+                    motionManager.samples.isEmpty
+                )
+
+                if let exportedFileURL {
+
+                    ShareLink(
+                        item: exportedFileURL
+                    ) {
+
+                        Label(
+                            "Share CSV File",
+                            systemImage:
+                                "square.and.arrow.up"
+                        )
+                    }
+
+                    Text(
+                        exportedFileURL
+                            .lastPathComponent
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                if let exportError {
+
+                    Text(exportError)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+
+                // MARK: - Status
+
+                Text(
+                    motionManager.isRunning
+                        ? "Sensor Running"
+                        : "Sensor Stopped"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .padding()
+        }
+        .onDisappear {
+
+            motionManager
+                .stopMotionUpdates()
+        }
+    }
+
+    // MARK: - Sensor Row
+
+    private func motionRow(
+        axis: String,
+        value: Double
+    ) -> some View {
+
+        HStack {
+
+            Text(axis)
+                .font(.headline)
+                .fontWeight(.bold)
+
+            Spacer()
+
+            Text(
+                String(
+                    format: "%.4f",
+                    value
+                )
+            )
+            .font(
+                .system(
+                    .body,
+                    design: .monospaced
+                )
+            )
+        }
+    }
+
+    // MARK: - CSV
+
+    private func saveCSV() {
+
+        do {
+
+            exportedFileURL =
+                try motionManager.exportCSV(
+                    label: recordingLabel
+                )
+
+            exportError = nil
+
+        } catch {
+
+            exportError =
+                error.localizedDescription
+        }
+    }
+}
+
+#Preview {
+    MotionTestView()
+}
