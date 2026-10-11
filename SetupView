@@ -1,0 +1,222 @@
+import SwiftUI
+
+struct SetupView: View {
+
+    @State private var patientGroup: CPRPatientGroup = .adult
+
+    @State private var rescuerMode: CPRRescuerMode = .twoOrMore
+
+    @State private var practiceMode: PracticeMode = .coach
+
+    @State private var voicePromptsEnabled = true
+
+    @State private var hapticsEnabled = true
+
+    @State private var metronomeEnabled = false
+
+    private var config: CPRProtocolConfig {
+
+        CPRProtocolConfig(
+            patientGroup: patientGroup,
+            rescuerMode: rescuerMode,
+            practiceMode: practiceMode,
+            voicePromptsEnabled: voicePromptsEnabled,
+            hapticsEnabled: hapticsEnabled,
+            metronomeEnabled: metronomeEnabled
+        )
+    }
+
+    var body: some View {
+
+        Form {
+
+            // MARK: - Practice Mode
+
+            Section("Practice Mode") {
+
+                Picker(
+                    "Mode",
+                    selection: $practiceMode
+                ) {
+
+                    ForEach(PracticeMode.allCases) { mode in
+
+                        Text(mode.rawValue)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if practiceMode == .coach {
+
+                    Text(
+                        "Coach Mode provides live feedback while you practice."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                } else {
+
+                    Text(
+                        "Assessment Mode records your performance without coaching during the session."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            // MARK: - Patient
+
+            Section("Patient") {
+
+                Picker(
+                    "Patient Group",
+                    selection: $patientGroup
+                ) {
+
+                    ForEach(CPRPatientGroup.allCases) { group in
+
+                        Text(group.rawValue)
+                            .tag(group)
+                    }
+                }
+            }
+
+            // MARK: - Rescuers
+
+            Section("Rescuers") {
+
+                Picker(
+                    "Number of Rescuers",
+                    selection: $rescuerMode
+                ) {
+
+                    ForEach(CPRRescuerMode.allCases) { mode in
+
+                        Text(mode.rawValue)
+                            .tag(mode)
+                    }
+                }
+            }
+
+            // MARK: - Coaching Options
+
+            if practiceMode == .coach {
+
+                Section("Coaching") {
+
+                    Toggle(
+                        "Voice Prompts",
+                        isOn: $voicePromptsEnabled
+                    )
+
+                    Toggle(
+                        "Haptic Feedback",
+                        isOn: $hapticsEnabled
+                    )
+
+                    Toggle(
+                        "Pace Metronome",
+                        isOn: $metronomeEnabled
+                    )
+                }
+            }
+
+            // MARK: - Protocol Summary
+
+            Section("Training Protocol") {
+
+                HStack {
+
+                    Text("Compression / Breath Ratio")
+
+                    Spacer()
+
+                    Text(
+                        "\(config.compressionsPerCycle):\(config.breathsPerCycle)"
+                    )
+                    .fontWeight(.bold)
+                }
+
+                if let switchInterval = config.switchInterval {
+
+                    HStack {
+
+                        Text("Compressor Switch")
+
+                        Spacer()
+
+                        Text(
+                            "Every \(Int(switchInterval / 60)) min"
+                        )
+                        .fontWeight(.semibold)
+                    }
+
+                } else {
+
+                    Text(
+                        "No compressor-switch reminder in 1-rescuer mode."
+                    )
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            // MARK: - Start
+
+            Section {
+
+                NavigationLink {
+
+                    PracticeView(
+                        config: config
+                    )
+
+                } label: {
+
+                    HStack {
+
+                        Spacer()
+
+                        Label(
+                            practiceMode == .coach
+                                ? "Begin Coaching"
+                                : "Begin Assessment",
+                            systemImage: "play.fill"
+                        )
+                        .font(.headline)
+
+                        Spacer()
+                    }
+                }
+            }
+
+            // MARK: - Explanation
+
+            Section {
+
+                if practiceMode == .coach {
+
+                    Text(
+                        "Coach Mode can provide pace feedback, compression-cycle guidance, breath prompts, haptics, and compressor-switch reminders."
+                    )
+
+                } else {
+
+                    Text(
+                        "Assessment Mode hides live coaching and shows performance feedback after the session."
+                    )
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .navigationTitle("Setup")
+    }
+}
+
+#Preview {
+
+    NavigationStack {
+        SetupView()
+    }
+}
