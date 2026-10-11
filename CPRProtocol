@@ -1,0 +1,79 @@
+import Foundation
+
+// MARK: - Patient Group
+
+enum CPRPatientGroup: String, CaseIterable, Identifiable {
+
+    case adult = "Adult / Post-puberty"
+    case pediatric = "Child / Infant"
+
+    var id: String {
+        rawValue
+    }
+}
+
+// MARK: - Rescuer Mode
+
+enum CPRRescuerMode: String, CaseIterable, Identifiable {
+
+    case one = "1 Rescuer"
+    case twoOrMore = "2+ Rescuers"
+
+    var id: String {
+        rawValue
+    }
+}
+
+// MARK: - Practice Mode
+
+enum PracticeMode: String, CaseIterable, Identifiable {
+
+    case coach = "Coach"
+    case assessment = "Assessment"
+
+    var id: String {
+        rawValue
+    }
+}
+
+// MARK: - CPR Configuration
+
+struct CPRProtocolConfig {
+
+    var patientGroup: CPRPatientGroup
+    var rescuerMode: CPRRescuerMode
+
+    var practiceMode: PracticeMode = .coach
+
+    var voicePromptsEnabled: Bool = true
+    var hapticsEnabled: Bool = true
+    var metronomeEnabled: Bool = false
+
+    // MARK: Compression / Breath Ratio
+
+    var compressionsPerCycle: Int {
+
+        if patientGroup == .pediatric &&
+            rescuerMode == .twoOrMore {
+
+            return 15
+        }
+
+        return 30
+    }
+
+    var breathsPerCycle: Int {
+        2
+    }
+
+    // MARK: Compressor Switching
+
+    var switchInterval: TimeInterval? {
+
+        guard rescuerMode == .twoOrMore else {
+            return nil
+        }
+
+        return 120
+    }
+}
