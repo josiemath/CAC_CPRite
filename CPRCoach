@@ -1,0 +1,84 @@
+import Foundation
+
+enum CPRCoachEvent {
+    case breathsDue(Int)
+    case switchRescuer
+}
+
+struct CPRCoach {
+
+    private(set) var config: CPRProtocolConfig
+
+    private(set) var compressionsInCycle = 0
+    private(set) var completedCycles = 0
+    private(set) var breathsDue = false
+
+    private var nextSwitchTime: TimeInterval?
+
+    init(config: CPRProtocolConfig) {
+
+        self.config = config
+        self.nextSwitchTime = config.switchInterval
+    }
+
+    mutating func recordCompression() -> CPRCoachEvent? {
+
+        // Once compressions begin again,
+        // the ventilation pause has ended.
+        if breathsDue {
+            breathsDue = false
+        }
+
+        compressionsInCycle += 1
+
+        guard compressionsInCycle >=
+                config.compressionsPerCycle else {
+
+            return nil
+        }
+
+        compressionsInCycle = 0
+        completedCycles += 1
+        breathsDue = true
+
+        return .breathsDue(
+            config.breathsPerCycle
+        )
+    }
+
+    mutating func updateTime(
+        _ elapsedTime: TimeInterval
+    ) -> CPRCoachEvent? {
+
+        guard
+            let interval = config.switchInterval,
+            let nextSwitchTime,
+            elapsedTime >= nextSwitchTime
+        else {
+            return nil
+        }
+
+        self.nextSwitchTime =
+            nextSwitchTime + interval
+
+        return .switchRescuer
+    }
+
+    mutating func updateConfig(
+        _ newConfig: CPRProtocolConfig
+    ) {
+
+        config = newConfig
+        reset()
+    }
+
+    mutating func reset() {
+
+        compressionsInCycle = 0
+        completedCycles = 0
+        breathsDue = false
+
+        nextSwitchTime =
+            config.switchInterval
+    }
+}
